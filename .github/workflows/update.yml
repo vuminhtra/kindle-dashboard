@@ -49,6 +49,8 @@ jobs:
         run: |
           python render.py --out "_site/${SECRET_PATH:-img}/dashboard.png"
           touch _site/index.html
+          # ảnh mẫu (dữ liệu giả) để minh hoạ, ai cũng xem được
+          python render.py --sample sample.json --now "2026-11-06T10:30" --out _site/preview.png
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
