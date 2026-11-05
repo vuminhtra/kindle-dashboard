@@ -21,14 +21,17 @@ from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont
 
 # ---------------------------------------------------------------- cấu hình
-W, H = 1236, 1648
+PW, PH = 1236, 1648   # điểm ảnh thật của màn Kindle
+# Phóng to toàn bộ bố cục (chữ + khoảng cách). 1.0 = cỡ gốc, 1.3 = to hơn 30%.
+SCALE = float(os.environ.get("DASH_SCALE", "1.3"))
+W, H = round(PW / SCALE), round(PH / SCALE)   # kích thước "logic" dùng khi bố trí
 TZ = ZoneInfo(os.environ.get("DASH_TZ", "Asia/Ho_Chi_Minh"))
 # Bỏ qua các lịch có tên trong danh sách này (phân tách bằng dấu phẩy)
 SKIP_CALENDARS = {s.strip() for s in os.environ.get("DASH_SKIP_CALENDARS", "").split(",") if s.strip()}
 
 FONT_DIR = Path(__file__).parent / "fonts"
 BLACK, DARK, MID, LIGHT, PALE, WHITE = 0, 60, 120, 180, 225, 255
-MARGIN = 72
+MARGIN = round(72 / SCALE ** 0.5)   # lề tăng ít hơn chữ để không phí chỗ
 
 THU = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
 
@@ -37,8 +40,46 @@ def font(weight: str, size: int) -> ImageFont.FreeTypeFont:
     for p in (FONT_DIR / f"Inter-{weight}.otf",
               Path(f"/usr/share/fonts/truetype/dejavu/DejaVuSans{'-Bold' if weight in ('Bold', 'SemiBold') else ''}.ttf")):
         if p.exists():
-            return ImageFont.truetype(str(p), size)
-    return ImageFont.load_default(size)
+            return ImageFont.truetype(str(p), round(size * SCALE))
+    return ImageFont.load_default(round(size * SCALE))
+
+
+class ScaledDraw:
+    """Vẽ theo toạ độ logic, tự nhân SCALE sang điểm ảnh thật (chữ vẫn nét căng)."""
+
+    def __init__(self, img):
+        self._d = ImageDraw.Draw(img)
+
+    @staticmethod
+    def _xy(v):
+        if isinstance(v, (list, tuple)) and v and isinstance(v[0], (list, tuple)):
+            return [(x * SCALE, y * SCALE) for x, y in v]
+        return [c * SCALE for c in v]
+
+    @staticmethod
+    def _kw(kw):
+        for k in ("width", "radius"):
+            if k in kw:
+                kw[k] = max(1, round(kw[k] * SCALE))
+        return kw
+
+    def textlength(self, text, font):
+        return self._d.textlength(text, font=font) / SCALE
+
+    def text(self, xy, text, **kw):
+        self._d.text((xy[0] * SCALE, xy[1] * SCALE), text, **kw)
+
+    def line(self, xy, **kw):
+        self._d.line(self._xy(xy), **self._kw(kw))
+
+    def polygon(self, xy, **kw):
+        self._d.polygon(self._xy(xy), **self._kw(kw))
+
+    def ellipse(self, xy, **kw):
+        self._d.ellipse(self._xy(xy), **self._kw(kw))
+
+    def rounded_rectangle(self, xy, **kw):
+        self._d.rounded_rectangle(self._xy(xy), **self._kw(kw))
 
 
 # ---------------------------------------------------------------- dữ liệu
@@ -362,8 +403,8 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
     from lunar import solar_to_lunar, year_name
 
     today, tomorrow = now.date(), now.date() + timedelta(days=1)
-    img = Image.new("L", (W, H), WHITE)
-    d = ImageDraw.Draw(img)
+    img = Image.new("L", (PW, PH), WHITE)
+    d = ScaledDraw(img)
     f_sub = font("Regular", 28)
 
     # ============ HEADER: ngày + âm lịch | thời tiết
@@ -411,10 +452,21 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
 
     # ---- tính trước khối dưới cùng (lịch hôm nay + ngày mai) để todo lấp phần giữa
     footer_y = H - 64
-    cal_rows = min(len(ev_today), 6) or 1
-    tom_rows = min(len(ev_tom), 3) or 1
-    bottom_h = (62 + 46 * cal_rows + (36 if len(ev_today) > 6 else 0) + 26) + (62 + 44 * tom_rows) + 16
-    bottom_y = footer_y - bottom_h
+    min_todo = 62 + 3 * 80 if tasks else 140   # luôn chừa chỗ cho ít nhất ~3 việc
+    cal_max, tom_max = 6, 3
+
+    def _bottom_h(cm, tm):
+        cr = min(len(ev_today), cm) or 1
+        tr = min(len(ev_tom), tm) or 1
+        return (62 + 46 * cr + (36 if len(ev_today) > cm else 0) + 26) + (62 + 44 * tr) + 16
+
+    # thiếu chỗ cho todo → bớt dòng lịch (ngày mai trước, rồi hôm nay)
+    while footer_y - _bottom_h(cal_max, tom_max) - y < min_todo and (tom_max > 1 or cal_max > 2):
+        if tom_max > 1:
+            tom_max -= 1
+        else:
+            cal_max -= 1
+    bottom_y = footer_y - _bottom_h(cal_max, tom_max)
 
     # ============ VIỆC CẦN LÀM (khu vực chính)
     tasks_open = sorted(tasks, key=lambda t: (t.due is None, t.due or date.max, t.title.lower()))
@@ -464,7 +516,11 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
     if not ev_today:
         d.text((MARGIN, y), "Không có sự kiện nào.", font=f_ev, fill=MID)
         y += 46
-    for i, e in enumerate(ev_today[:6]):
+    shown = list(ev_today)
+    while len(shown) > cal_max:   # thiếu chỗ: bỏ sự kiện đã qua trước, rồi tới cuối danh sách
+        past_i = next((k for k, x in enumerate(shown) if not x.all_day and x.end <= now), None)
+        shown.pop(past_i if past_i is not None else -1)
+    for i, e in enumerate(shown):
         past = (not e.all_day) and e.end <= now
         is_next = e is nxt
         col = LIGHT if past else BLACK
@@ -476,17 +532,17 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
             tw = min(d.textlength(fit(d, e.title, tf, W - 2 * MARGIN - time_w), font=tf), W - 2 * MARGIN - time_w)
             d.line([(MARGIN + time_w, y + 20), (MARGIN + time_w + tw, y + 20)], fill=LIGHT, width=2)
         y += 46
-    if len(ev_today) > 6:
-        d.text((MARGIN, y), f"+ {len(ev_today) - 6} sự kiện nữa", font=f_sub, fill=MID)
+    if len(ev_today) > len(shown):
+        d.text((MARGIN, y), f"+ {len(ev_today) - len(shown)} sự kiện khác", font=f_sub, fill=MID)
         y += 36
     y += 26
 
     # ============ NGÀY MAI
     y = section_title(d, y, "Ngày mai · " + THU[tomorrow.weekday()],
-                      f"{len(ev_tom)} sự kiện" if len(ev_tom) > 3 else "")
+                      f"{len(ev_tom)} sự kiện" if len(ev_tom) > tom_max else "")
     if not ev_tom:
         d.text((MARGIN, y), "Chưa có lịch.", font=f_ev, fill=MID)
-    for e in ev_tom[:3]:
+    for e in ev_tom[:tom_max]:
         d.text((MARGIN, y), "Cả ngày" if e.all_day else hm(e.start), font=font("Medium", 28), fill=DARK)
         d.text((MARGIN + time_w, y - 2), fit(d, e.title, f_ev, W - 2 * MARGIN - time_w), font=f_ev, fill=DARK)
         y += 44
