@@ -1,0 +1,57 @@
+name: Cập nhật dashboard Kindle
+
+on:
+  schedule:
+    # mỗi 30 phút (giờ UTC; GitHub có thể chạy trễ vài phút)
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pillow requests
+      - name: Tải font Inter (nếu repo chưa có)
+        run: |
+          if [ ! -f fonts/Inter-Regular.otf ]; then
+            mkdir -p fonts
+            curl -sSL -o /tmp/inter.zip https://github.com/rsms/inter/releases/download/v4.0/Inter-4.0.zip
+            unzip -j -o /tmp/inter.zip 'extras/otf/Inter-Regular.otf' 'extras/otf/Inter-Medium.otf' 'extras/otf/Inter-SemiBold.otf' 'extras/otf/Inter-Bold.otf' -d fonts
+          fi
+          ls -la fonts
+      - name: Vẽ dashboard
+        env:
+          DATA_URL: ${{ secrets.DATA_URL }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          DASH_SKIP_CALENDARS: ${{ vars.DASH_SKIP_CALENDARS }}
+          # thư mục bí mật để link ảnh khó đoán
+          SECRET_PATH: ${{ secrets.SECRET_PATH }}
+        run: |
+          python render.py --out "_site/${SECRET_PATH:-img}/dashboard.png"
+          touch _site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
