@@ -1,0 +1,87 @@
+{
+  "events": [
+    {
+      "title": "Sinh nhật mẹ",
+      "day": 0
+    },
+    {
+      "title": "Chạy bộ công viên Thống Nhất",
+      "start": "06:00",
+      "end": "06:45"
+    },
+    {
+      "title": "Họp nhóm dự án hàng tuần",
+      "start": "09:00",
+      "end": "10:00",
+      "location": "Google Meet"
+    },
+    {
+      "title": "Ăn trưa với khách hàng",
+      "start": "12:00",
+      "end": "13:30",
+      "location": "Nhà hàng Quán Ăn Ngon, 18 Phan Bội Châu"
+    },
+    {
+      "title": "Review thiết kế giao diện mới",
+      "start": "15:00",
+      "end": "16:00"
+    },
+    {
+      "title": "Đón con tan học",
+      "start": "17:15",
+      "end": "17:45"
+    },
+    {
+      "title": "Học tiếng Anh online",
+      "start": "+1 07:30",
+      "end": "+1 08:30"
+    },
+    {
+      "title": "Khám răng định kỳ",
+      "start": "+1 10:00",
+      "end": "+1 11:00",
+      "location": "Nha khoa Paris"
+    },
+    {
+      "title": "Gọi điện cho ngân hàng",
+      "start": "+1 14:00",
+      "end": "+1 14:15"
+    }
+  ],
+  "tasks": [
+    {
+      "title": "Nộp báo cáo tháng 10",
+      "due": -1
+    },
+    {
+      "title": "Thanh toán hoá đơn điện nước",
+      "due": 0
+    },
+    {
+      "title": "Mua quà sinh nhật cho mẹ (hoa + bánh kem)",
+      "due": 0
+    },
+    {
+      "title": "Đặt lịch bảo dưỡng xe máy",
+      "due": 1
+    },
+    {
+      "title": "Chuẩn bị slide thuyết trình cho buổi họp đầu tư quý IV với ban giám đốc",
+      "due": 4
+    },
+    {
+      "title": "Đọc xong cuốn “Atomic Habits”"
+    },
+    {
+      "title": "Dọn dẹp tủ quần áo"
+    }
+  ],
+  "weather": {
+    "temp": 27.4,
+    "code": 63,
+    "tmin": 23,
+    "tmax": 30,
+    "rain": 70,
+    "aqi": 132
+  }
+}
