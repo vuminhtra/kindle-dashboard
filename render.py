@@ -463,6 +463,7 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
     f_ev, f_evb = font("Regular", 32), font("SemiBold", 32)
     if not ev_today:
         d.text((MARGIN, y), "Không có sự kiện nào.", font=f_ev, fill=MID)
+        y += 46
     for i, e in enumerate(ev_today[:6]):
         past = (not e.all_day) and e.end <= now
         is_next = e is nxt
