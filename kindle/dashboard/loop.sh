@@ -1,6 +1,6 @@
 #!/bin/sh
 # Vòng lặp dashboard: bật Wi-Fi → tải PNG → hiển thị bằng eips → tắt Wi-Fi → ngủ (RTC) → lặp lại.
-# Được chạy nền bởi documents/Dashboard.sh. Dừng: giữ nút nguồn ~40 giây để khởi động lại Kindle.
+# Được chạy nền bởi documents/Dashboard.sh. Thoát: bấm nút nguồn 1 lần (dự phòng: giữ ~40 giây để khởi động lại).
 # Cách tắt giao diện, đánh thức bằng RTC dựa theo usetrmnl/trmnl-kindle (MIT).
 
 DIR="${DASH_DIR:-/mnt/us/dashboard}"
@@ -99,10 +99,32 @@ go_to_sleep() {
   [ -n "$DASH_ONCE" ] && exit 0
   RTC=/sys/class/rtc/rtc1
   [ -d "$RTC" ] || RTC=/sys/class/rtc/rtc0
+  wake_at=$(( $(date +%s) + secs ))
   # đặt báo thức RTC rồi ngủ sâu; nếu không được thì sleep thường
-  { echo 0 > "$RTC/wakealarm" &&
-    echo "+${secs}" > "$RTC/wakealarm" &&
-    echo mem > /sys/power/state; } 2>/dev/null || sleep "$secs"
+  if { echo 0 > "$RTC/wakealarm" &&
+       echo "+${secs}" > "$RTC/wakealarm" &&
+       echo mem > /sys/power/state; } 2>/dev/null; then
+    # Tỉnh dậy sớm hơn giờ hẹn quá 60 giây = có người bấm nút nguồn → thoát dashboard
+    if [ "$(date +%s)" -lt $(( wake_at - 60 )) ]; then
+      exit_dashboard
+    fi
+  else
+    sleep "$secs"
+  fi
+}
+
+exit_dashboard() {
+  log "Bấm nút nguồn → thoát dashboard, bật lại giao diện Kindle"
+  echo 0 > "$RTC/wakealarm" 2>/dev/null
+  eips -c
+  eips 1 1 "Dang thoat dashboard, cho chut..."
+  lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
+  wifi 1
+  /etc/init.d/framework start 2>/dev/null || {
+    start lab126_gui >/dev/null 2>&1
+    start framework >/dev/null 2>&1 || initctl start framework >/dev/null 2>&1
+  }
+  exit 0
 }
 
 init
