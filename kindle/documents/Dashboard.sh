@@ -3,7 +3,7 @@
 # Author: Tra
 
 # Bấm vào "sách" này trong thư viện để bật màn hình dashboard.
-# Muốn quay lại Kindle bình thường: giữ nút nguồn ~40 giây để khởi động lại.
+# Muốn quay lại Kindle bình thường: bấm nút nguồn 1 lần (không được thì giữ ~40 giây).
 
 DIR=/mnt/us/dashboard
 
@@ -26,7 +26,7 @@ if pgrep -f "$DIR/loop.sh" >/dev/null 2>&1; then
 fi
 
 echo "Dang bat dashboard..."
-echo "Thoat: giu nut nguon ~40 giay."
+echo "Thoat: bam nut nguon 1 lan."
 sleep 3
 # chạy nền, tách khỏi tiến trình giao diện để không bị dừng theo
 if command -v setsid >/dev/null 2>&1; then
