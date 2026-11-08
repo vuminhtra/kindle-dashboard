@@ -27,6 +27,9 @@ SCALE = float(os.environ.get("DASH_SCALE", "1.3"))
 W, H = round(PW / SCALE), round(PH / SCALE)   # kích thước "logic" dùng khi bố trí
 TZ = ZoneInfo(os.environ.get("DASH_TZ", "Asia/Ho_Chi_Minh"))
 # Bỏ qua các lịch có tên trong danh sách này (phân tách bằng dấu phẩy)
+# Bố cục: trabo1 = ngày + thời tiết ở đầu (bản gốc) · trabo2 = bỏ đầu trang, mục Claude to ở trên cùng
+TITLE = os.environ.get("DASH_TITLE") or "Claude's Trà Bô"   # tiêu đề bố cục trabo2
+LAYOUT = os.environ.get("DASH_LAYOUT", "dashboardtrabo1").lower().replace("dashboard", "")
 SKIP_CALENDARS = {s.strip() for s in os.environ.get("DASH_SKIP_CALENDARS", "").split(",") if s.strip()}
 
 FONT_DIR = Path(__file__).parent / "fonts"
@@ -48,6 +51,7 @@ class ScaledDraw:
     """Vẽ theo toạ độ logic, tự nhân SCALE sang điểm ảnh thật (chữ vẫn nét căng)."""
 
     def __init__(self, img):
+        self._img = img
         self._d = ImageDraw.Draw(img)
 
     @staticmethod
@@ -267,6 +271,126 @@ def draw_claude(d, y: int, usage: dict, now: datetime) -> int:
     return y + 92
 
 
+def _remaining(iso: str | None, now: datetime) -> tuple[str, datetime | None]:
+    """→ ("còn 2 giờ 05 phút", thời điểm đặt lại)"""
+    if not iso:
+        return "", None
+    try:
+        t = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(TZ)
+    except ValueError:
+        return "", None
+    mins = max(0, int((t - now).total_seconds() // 60))
+    days, rem = divmod(mins, 1440)
+    hrs, m = divmod(rem, 60)
+    if days:
+        txt = f"còn {days} ngày {hrs} giờ"
+    elif hrs:
+        txt = f"còn {hrs} giờ {m:02d} phút"
+    else:
+        txt = f"còn {m} phút"
+    return txt, t
+
+
+def draw_claude_big(d, y: int, usage: dict | None, now: datetime) -> int:
+    """Bố cục trabo2: mỗi giới hạn 1 khối to, số % lớn, thanh dày + vạch thời gian đã trôi."""
+    # dòng tiêu đề: [logo.png nếu có trong repo] + "Claude's Trà Bô"
+    x = MARGIN
+    logo_path = Path(__file__).parent / "logo.png"
+    if logo_path.exists():
+        try:
+            lg = Image.open(logo_path).convert("RGBA")
+            lh = round(52 * SCALE)
+            lg = lg.resize((max(1, round(lg.width * lh / lg.height)), lh), Image.LANCZOS)
+            bg = Image.new("RGBA", lg.size, (255, 255, 255, 255))
+            bg.alpha_composite(lg)
+            d._img.paste(bg.convert("L"), (round(x * SCALE), round((y - 4) * SCALE)))
+            x += lg.width / SCALE + 16
+        except Exception as e:
+            print("Không đọc được logo.png:", e)
+    d.text((x, y + 22), TITLE, font=font("Bold", 42), fill=BLACK, anchor="lm")
+    note, stale = "", False
+    if usage and usage.get("fetched_at"):
+        try:
+            ft = datetime.fromisoformat(usage["fetched_at"].replace("Z", "+00:00")).astimezone(TZ)
+            stale = (now - ft).total_seconds() > 7200
+            note = (f"SỐ LIỆU CŨ · {ft:%H:%M %d/%m}" if stale else f"số liệu lúc {ft:%H:%M}")
+        except ValueError:
+            pass
+    if note:
+        fn = font("SemiBold" if stale else "Regular", 24)
+        d.text((W - MARGIN - d.textlength(note, font=fn), y + 22), note, font=fn, fill=BLACK if stale else MID, anchor="lm")
+    y += 12
+    y += 48
+    d.line([(MARGIN, y), (W - MARGIN, y)], fill=BLACK, width=6)
+    y += 26
+    if not usage:
+        d.text((MARGIN, y), "Chưa có số liệu từ Mac mini.", font=font("Regular", 32), fill=MID)
+        return y + 70
+
+    pct_col = 300                      # cột trái: số % rất to
+    bx0, bx1 = MARGIN + pct_col, W - MARGIN   # cột phải: trạng thái + thanh + vạch thời gian
+    bar_w = bx1 - bx0
+    for key, name, span in (("five_hour", "Phiên 5 giờ", timedelta(hours=5)),
+                            ("seven_day", "Tuần này", timedelta(days=7))):
+        v = usage.get(key) or {}
+        pct = v.get("utilization")
+        left, reset_at = _remaining(v.get("resets_at"), now)
+        # dòng 1: tên  ·  đặt lại + còn bao lâu
+        d.text((MARGIN, y), name, font=font("SemiBold", 32), fill=DARK)
+        if reset_at:
+            when = f"{reset_at:%H:%M}" if reset_at.date() == now.date() else f"{THU_NGAN[reset_at.weekday()]} {reset_at:%H:%M}"
+            info = f"đặt lại {when} · {left}"
+            fi = font("Medium", 26)
+            d.text((W - MARGIN - d.textlength(info, font=fi), y + 4), info, font=fi, fill=DARK)
+        y += 46
+        # cột trái: số % to
+        pct_txt = "--" if pct is None else f"{round(pct):02d}%"   # 02% để hai dòng thẳng hàng
+        fp = font("Bold", 104)
+        cell = max(d.textlength(c, font=fp) for c in "0123456789")   # chữ số rộng bằng nhau → 2 dòng thẳng cột
+        x = MARGIN - 4
+        for c in pct_txt:
+            cw = d.textlength(c, font=fp)
+            if c.isdigit():
+                d.text((x + (cell - cw) / 2, y + 64), c, font=fp, fill=BLACK, anchor="lm")
+                x += cell
+            else:
+                d.text((x, y + 64), c, font=fp, fill=BLACK, anchor="lm")
+                x += cw
+        # cột phải, hàng 1: trạng thái
+        if pct is not None:
+            status = ("Thoải mái" if pct < 50 else "Vừa phải" if pct < 80
+                      else "Sắp chạm giới hạn" if pct < 100 else "Đã hết, chờ đặt lại")
+            fs = font("SemiBold", 28)
+            if pct >= 80:   # cảnh báo: chữ trắng trên nền đen
+                sw = d.textlength(status, font=fs)
+                d.rounded_rectangle([bx0, y, bx0 + sw + 32, y + 40], radius=20, fill=BLACK)
+                d.text((bx0 + 16, y + 20), status, font=fs, fill=WHITE, anchor="lm")
+            else:
+                d.text((bx0, y + 20), status, font=fs, fill=DARK, anchor="lm")
+        # hàng 2: thanh dày
+        by, bh = y + 52, 40
+        d.rounded_rectangle([bx0, by, bx1, by + bh], radius=bh // 2, outline=BLACK, width=4)
+        for q in (0.25, 0.5, 0.75):
+            x = bx0 + bar_w * q
+            d.line([(x, by + 10), (x, by + bh - 10)], fill=LIGHT, width=2)
+        if pct:
+            fw = max(bh, bar_w * min(pct, 100) / 100)
+            d.rounded_rectangle([bx0, by, bx0 + fw, by + bh], radius=bh // 2, fill=BLACK)
+        # hàng 3: vạch thời gian đã trôi (▲) — % dùng nằm trái vạch = đang dùng chậm hơn thời gian
+        ty = by + bh + 5
+        if reset_at:
+            elapsed = min(max(1 - (reset_at - now) / span, 0), 1)
+            mx = bx0 + bar_w * elapsed
+            d.polygon([(mx, ty), (mx - 11, ty + 16), (mx + 11, ty + 16)], fill=BLACK)
+            cap = f"đã trôi {round(elapsed * 100)}% thời gian"
+            fc = font("Regular", 22)
+            cw = d.textlength(cap, font=fc)
+            cx = mx + 18 if mx + 18 + cw <= bx1 else mx - 18 - cw
+            d.text((cx, ty - 2), cap, font=fc, fill=MID)
+        y += 150
+    return y
+
+
 def load_sample(path: str, today: date) -> tuple[list[Event], list[Task]]:
     """Mẫu JSON: giờ dạng "HH:MM" tính theo hôm nay, "+1 HH:MM" là ngày mai; due là số ngày lệch."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -459,35 +583,41 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
     d = ScaledDraw(img)
     f_sub = font("Regular", 28)
 
-    # ============ HEADER: ngày + âm lịch | thời tiết
-    y = 56
-    d.text((MARGIN, y), THU[today.weekday()], font=font("Bold", 88), fill=BLACK)
-    d.text((MARGIN, y + 112), f"{today.day} tháng {today.month}, {today.year}", font=font("SemiBold", 38), fill=DARK)
-    ld, lm, ly, leap = solar_to_lunar(today.day, today.month, today.year)
-    lunar_txt = f"Âm lịch {ld}/{lm}{' nhuận' if leap else ''} · năm {year_name(ly)}"
-    d.text((MARGIN, y + 164), lunar_txt, font=f_sub, fill=MID)
+    if LAYOUT == "trabo2":
+        # ============ TRABO2: không có đầu trang, Claude to ở trên cùng
+        y = draw_claude_big(d, 40, CLAUDE_USAGE, now)
+        d.line([(MARGIN, y - 20), (W - MARGIN, y - 20)], fill=PALE, width=2)
+        y += 14
+    else:
+        # ============ HEADER: ngày + âm lịch | thời tiết
+        y = 56
+        d.text((MARGIN, y), THU[today.weekday()], font=font("Bold", 88), fill=BLACK)
+        d.text((MARGIN, y + 112), f"{today.day} tháng {today.month}, {today.year}", font=font("SemiBold", 38), fill=DARK)
+        ld, lm, ly, leap = solar_to_lunar(today.day, today.month, today.year)
+        lunar_txt = f"Âm lịch {ld}/{lm}{' nhuận' if leap else ''} · năm {year_name(ly)}"
+        d.text((MARGIN, y + 164), lunar_txt, font=f_sub, fill=MID)
 
-    if weather:
-        right = W - MARGIN
-        ft = font("Bold", 96)
-        t = f"{round(weather.temp)}°"
-        tw = d.textlength(t, font=ft)
-        d.text((right - tw, y - 6), t, font=ft, fill=BLACK)
-        draw_icon(d, weather.icon, int(right - tw - 85), y + 52, 62)
-        l1 = f"{weather.desc} · {round(weather.tmin)}–{round(weather.tmax)}°"
-        l2 = f"Mưa {weather.rain}%" + (f" · AQI {weather.aqi} {aqi_label(weather.aqi)}" if weather.aqi is not None else "")
-        fw = font("Medium", 28)
-        d.text((right - d.textlength(l1, font=fw), y + 124), l1, font=fw, fill=DARK)
-        d.text((right - d.textlength(l2, font=f_sub), y + 164), l2, font=f_sub, fill=MID)
-    y += 222
-    d.line([(MARGIN, y), (W - MARGIN, y)], fill=BLACK, width=6)
-    y += 32
+        if weather:
+            right = W - MARGIN
+            ft = font("Bold", 96)
+            t = f"{round(weather.temp)}°"
+            tw = d.textlength(t, font=ft)
+            d.text((right - tw, y - 6), t, font=ft, fill=BLACK)
+            draw_icon(d, weather.icon, int(right - tw - 85), y + 52, 62)
+            l1 = f"{weather.desc} · {round(weather.tmin)}–{round(weather.tmax)}°"
+            l2 = f"Mưa {weather.rain}%" + (f" · AQI {weather.aqi} {aqi_label(weather.aqi)}" if weather.aqi is not None else "")
+            fw = font("Medium", 28)
+            d.text((right - d.textlength(l1, font=fw), y + 124), l1, font=fw, fill=DARK)
+            d.text((right - d.textlength(l2, font=f_sub), y + 164), l2, font=f_sub, fill=MID)
+        y += 222
+        d.line([(MARGIN, y), (W - MARGIN, y)], fill=BLACK, width=6)
+        y += 32
 
-    # ============ MỨC DÙNG CLAUDE (nếu Mac mini có gửi số liệu)
-    if CLAUDE_USAGE:
-        y = draw_claude(d, y, CLAUDE_USAGE, now)
-        d.line([(MARGIN, y), (W - MARGIN, y)], fill=PALE, width=2)
-        y += 28
+        # ============ MỨC DÙNG CLAUDE (nếu Mac mini có gửi số liệu)
+        if CLAUDE_USAGE:
+            y = draw_claude(d, y, CLAUDE_USAGE, now)
+            d.line([(MARGIN, y), (W - MARGIN, y)], fill=PALE, width=2)
+            y += 28
 
     ev_today = sorted([e for e in events if event_day(e) == today], key=lambda e: (not e.all_day, e.start or now))
     ev_tom = sorted([e for e in events if event_day(e) == tomorrow], key=lambda e: (not e.all_day, e.start or now))
@@ -604,7 +734,7 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
 
     # ============ FOOTER
     d.line([(MARGIN, footer_y), (W - MARGIN, footer_y)], fill=LIGHT, width=2)
-    d.text((MARGIN, footer_y + 16), f"Cập nhật {now.strftime('%H:%M %d/%m')}", font=font("Regular", 24), fill=MID)
+    d.text((MARGIN, footer_y + 16), (f"{THU[today.weekday()]} {today.day}/{today.month} · " if LAYOUT == "trabo2" else "") + f"Cập nhật {now.strftime('%H:%M %d/%m')}", font=font("Regular", 24), fill=MID)
     return img
 
 
@@ -612,9 +742,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="_site/dashboard.png")
     ap.add_argument("--sample", help="file JSON dữ liệu mẫu (không gọi Google)")
+    ap.add_argument("--layout", help="dashboardtrabo1 | dashboardtrabo2 (mặc định lấy từ DASH_LAYOUT)")
     ap.add_argument("--now", help="giả lập thời điểm, vd 2026-11-03T10:30")
     args = ap.parse_args()
 
+    global LAYOUT
+    if args.layout:
+        LAYOUT = args.layout.lower().replace("dashboard", "")
     now = datetime.fromisoformat(args.now).replace(tzinfo=TZ) if args.now else datetime.now(TZ)
     if args.sample:
         events, tasks = load_sample(args.sample, now.date())
