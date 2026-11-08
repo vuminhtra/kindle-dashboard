@@ -212,7 +212,59 @@ def fetch_appscript(url: str, today: date) -> tuple[list[Event], list[Task]]:
     data = r.json()
     if "error" in data:
         raise SystemExit(f"Apps Script báo lỗi: {data['error']} (kiểm tra token trong DATA_URL)")
+    global CLAUDE_USAGE
+    CLAUDE_USAGE = data.get("claude")
     return parse_payload(data, today)
+
+
+# ---------------------------------------------------------------- mức dùng Claude
+CLAUDE_USAGE: dict | None = None   # {"five_hour": {"utilization", "resets_at"}, "seven_day": {...}, "fetched_at"}
+THU_NGAN = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
+
+
+def _reset_label(iso: str | None, now: datetime) -> str:
+    if not iso:
+        return ""
+    try:
+        t = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(TZ)
+    except ValueError:
+        return ""
+    if t.date() == now.date():
+        return f"đặt lại {t:%H:%M}"
+    return f"đặt lại {THU_NGAN[t.weekday()]} {t:%H:%M}"
+
+
+def draw_claude(d, y: int, usage: dict, now: datetime) -> int:
+    """Hai thanh: phiên 5 giờ + giới hạn tuần. Trả về y mới."""
+    f_lab, f_pct, f_small = font("Bold", 24), font("Bold", 30), font("Regular", 22)
+    d.text((MARGIN, y), "CLAUDE", font=f_lab, fill=BLACK)
+    fetched = usage.get("fetched_at")
+    if fetched:
+        try:
+            ft = datetime.fromisoformat(fetched.replace("Z", "+00:00")).astimezone(TZ)
+            age = (now - ft).total_seconds() / 3600
+            if age > 2:
+                note = f"số liệu cũ, lúc {ft:%H:%M %d/%m}"
+                d.text((W - MARGIN - d.textlength(note, font=f_small), y + 2), note, font=f_small, fill=MID)
+        except ValueError:
+            pass
+    y += 38
+    gap = 40
+    col_w = (W - 2 * MARGIN - gap) / 2
+    for i, (key, name) in enumerate((("five_hour", "Phiên hiện tại"), ("seven_day", "Tuần này"))):
+        x0 = MARGIN + i * (col_w + gap)
+        v = (usage.get(key) or {})
+        pct = v.get("utilization")
+        pct_txt = "--" if pct is None else f"{round(pct)}%"
+        d.text((x0, y), name, font=font("Medium", 24), fill=DARK)
+        d.text((x0 + col_w - d.textlength(pct_txt, font=f_pct), y - 4), pct_txt, font=f_pct, fill=BLACK)
+        by = y + 38
+        d.rounded_rectangle([x0, by, x0 + col_w, by + 16], radius=8, outline=BLACK, width=2)
+        if pct:
+            fill_w = max(16, col_w * min(pct, 100) / 100)
+            d.rounded_rectangle([x0, by, x0 + fill_w, by + 16], radius=8, fill=BLACK)
+        d.text((x0, by + 24), _reset_label(v.get("resets_at"), now), font=f_small, fill=MID)
+    return y + 92
 
 
 def load_sample(path: str, today: date) -> tuple[list[Event], list[Task]]:
@@ -431,6 +483,12 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
     d.line([(MARGIN, y), (W - MARGIN, y)], fill=BLACK, width=6)
     y += 32
 
+    # ============ MỨC DÙNG CLAUDE (nếu Mac mini có gửi số liệu)
+    if CLAUDE_USAGE:
+        y = draw_claude(d, y, CLAUDE_USAGE, now)
+        d.line([(MARGIN, y), (W - MARGIN, y)], fill=PALE, width=2)
+        y += 28
+
     ev_today = sorted([e for e in events if event_day(e) == today], key=lambda e: (not e.all_day, e.start or now))
     ev_tom = sorted([e for e in events if event_day(e) == tomorrow], key=lambda e: (not e.all_day, e.start or now))
     timed = [e for e in ev_today if not e.all_day]
@@ -563,8 +621,11 @@ def main():
     now = datetime.fromisoformat(args.now).replace(tzinfo=TZ) if args.now else datetime.now(TZ)
     if args.sample:
         events, tasks = load_sample(args.sample, now.date())
-        w = json.loads(Path(args.sample).read_text(encoding="utf-8")).get("weather")
+        sample = json.loads(Path(args.sample).read_text(encoding="utf-8"))
+        w = sample.get("weather")
         weather = Weather(**w) if w else None
+        global CLAUDE_USAGE
+        CLAUDE_USAGE = sample.get("claude")
     else:
         if os.environ.get("DATA_URL"):
             events, tasks = fetch_appscript(os.environ["DATA_URL"], now.date())
