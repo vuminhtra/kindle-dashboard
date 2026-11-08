@@ -510,7 +510,7 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
 
     # ---- tính trước khối dưới cùng (lịch hôm nay + ngày mai) để todo lấp phần giữa
     footer_y = H - 64
-    min_todo = 62 + 3 * 80 if tasks else 140   # luôn chừa chỗ cho ít nhất ~3 việc
+    min_todo = 62 + 3 * 72 if tasks else 140   # luôn chừa chỗ cho ít nhất ~3 việc
     cal_max, tom_max = 6, 3
 
     def _bottom_h(cm, tm):
@@ -533,35 +533,32 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
     right = f"{len(tasks_open)} việc" + (f" · {overdue} quá hạn" if overdue else "") + \
         (f" · {due_today} hôm nay" if due_today else "")
     y = section_title(d, y, "Việc cần làm", right if tasks_open else "")
-    f_task, box = font("Medium", 38), 42
+    f_task, box = font("Medium", 32), 36   # mỗi việc đúng 1 dòng, dài thì cắt "…"
     if not tasks_open:
         d.text((MARGIN, y + 6), "Không còn việc nào. Tuyệt vời!", font=font("Regular", 36), fill=MID)
         y += 70
     for i, t in enumerate(tasks_open):
         tag = due_tag(t, today)
-        f_tag = font("SemiBold", 24)
-        tag_w = int(d.textlength(tag, font=f_tag)) + 30 if tag else 0
-        text_w = W - 2 * MARGIN - box - 28 - (tag_w + 20 if tag else 0)
-        lines = wrap(d, t.title, f_task, text_w, max_lines=2)
+        f_tag = font("SemiBold", 22)
+        tag_w = int(d.textlength(tag, font=f_tag)) + 28 if tag else 0
+        text_w = W - 2 * MARGIN - box - 24 - (tag_w + 20 if tag else 0)
+        line = fit(d, t.title, f_task, text_w)
         limit = bottom_y - (16 if i == len(tasks_open) - 1 else 44)  # chừa chỗ cho "+ N việc nữa"
-        if y + 50 * len(lines) + 24 > limit and len(lines) > 1:
-            lines = wrap(d, t.title, f_task, text_w, max_lines=1)  # thiếu chỗ → rút gọn 1 dòng
-        row_h = 50 * len(lines) + 24
+        row_h = 66
         if y + row_h > limit:
             d.text((MARGIN, y + 4), f"+ {len(tasks_open) - i} việc nữa", font=f_sub, fill=MID)
             y += 44
             break
-        d.rounded_rectangle([MARGIN, y + 3, MARGIN + box, y + 3 + box], radius=9, outline=BLACK, width=4)
-        for j, line in enumerate(lines):
-            d.text((MARGIN + box + 28, y + j * 50), line, font=f_task, fill=BLACK)
+        d.rounded_rectangle([MARGIN, y + 4, MARGIN + box, y + 4 + box], radius=8, outline=BLACK, width=4)
+        d.text((MARGIN + box + 24, y + 22), line, font=f_task, fill=BLACK, anchor="lm")
         if tag:
             x1, x0 = W - MARGIN, W - MARGIN - tag_w
             if tag in ("Quá hạn", "Hôm nay"):
-                d.rounded_rectangle([x0, y + 5, x1, y + 45], radius=20, fill=BLACK)
-                d.text(((x0 + x1) / 2, y + 25), tag, font=f_tag, fill=WHITE, anchor="mm")
+                d.rounded_rectangle([x0, y + 4, x1, y + 40], radius=18, fill=BLACK)
+                d.text(((x0 + x1) / 2, y + 22), tag, font=f_tag, fill=WHITE, anchor="mm")
             else:
-                d.rounded_rectangle([x0, y + 5, x1, y + 45], radius=20, outline=MID, width=2)
-                d.text(((x0 + x1) / 2, y + 25), tag, font=f_tag, fill=DARK, anchor="mm")
+                d.rounded_rectangle([x0, y + 4, x1, y + 40], radius=18, outline=MID, width=2)
+                d.text(((x0 + x1) / 2, y + 22), tag, font=f_tag, fill=DARK, anchor="mm")
         y += row_h
         d.line([(MARGIN + box + 28, y - 8), (W - MARGIN, y - 8)], fill=PALE, width=2)
         y += 6
