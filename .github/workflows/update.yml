@@ -45,8 +45,7 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           DASH_SKIP_CALENDARS: ${{ vars.DASH_SKIP_CALENDARS }}
-          DASH_LAYOUT: ${{ vars.DASH_LAYOUT }}   # dashboardtrabo1 (mặc định) / dashboardtrabo2
-          # thư mục bí mật để link ảnh khó đoán
+          DASH_LAYOUT: ${{ vars.DASH_LAYOUT || 'dashboardtrabo2' }}
           SECRET_PATH: ${{ secrets.SECRET_PATH }}
         run: |
           python render.py --out "_site/${SECRET_PATH:-img}/dashboard.png"
