@@ -30,10 +30,11 @@ jobs:
           python-version: "3.12"
       - run: pip install pillow requests
       - name: Tải font Inter (nếu repo chưa có)
+        continue-on-error: true
         run: |
           if [ ! -f fonts/Inter-Regular.otf ]; then
             mkdir -p fonts
-            curl -sSL -o /tmp/inter.zip https://github.com/rsms/inter/releases/download/v4.0/Inter-4.0.zip
+            curl -fsSL --retry 3 --retry-delay 5 -o /tmp/inter.zip https://github.com/rsms/inter/releases/download/v4.0/Inter-4.0.zip
             unzip -j -o /tmp/inter.zip 'extras/otf/Inter-Regular.otf' 'extras/otf/Inter-Medium.otf' 'extras/otf/Inter-SemiBold.otf' 'extras/otf/Inter-Bold.otf' -d fonts
           fi
           ls -la fonts
