@@ -295,8 +295,8 @@ def draw_claude_big(d, y: int, usage: dict | None, now: datetime) -> int:
     """Bố cục trabo2: mỗi giới hạn 1 khối to, số % lớn, thanh dày + vạch thời gian đã trôi."""
     # dòng tiêu đề: [logo.png nếu có trong repo] + "Claude's Trà Bô"
     x = MARGIN
-    logo_path = Path(__file__).parent / "logo.png"
-    if logo_path.exists():
+    logo_path = next((p for p in Path(__file__).parent.iterdir() if p.name.lower() == "logo.png"), None)
+    if logo_path:
         try:
             lg = Image.open(logo_path).convert("RGBA")
             lh = round(52 * SCALE)
