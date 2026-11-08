@@ -19,6 +19,20 @@ function doGet(e) {
   return ContentService.createTextOutput(JSON.stringify(collect_())).setMimeType(ContentService.MimeType.JSON);
 }
 
+/** Mac mini gửi mức dùng Claude lên đây (POST ?token=...), lưu lại để doGet trả kèm. */
+function doPost(e) {
+  if (!e || !e.parameter || e.parameter.token !== TOKEN) {
+    return ContentService.createTextOutput('{"error":"forbidden"}').setMimeType(ContentService.MimeType.JSON);
+  }
+  const body = JSON.parse(e.postData.contents);
+  const keep = { fetched_at: new Date().toISOString() };
+  ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet'].forEach(function (k) {
+    if (body[k]) keep[k] = { utilization: body[k].utilization, resets_at: body[k].resets_at };
+  });
+  PropertiesService.getScriptProperties().setProperty('claude_usage', JSON.stringify(keep));
+  return ContentService.createTextOutput('{"ok":true}').setMimeType(ContentService.MimeType.JSON);
+}
+
 function collect_() {
   const today = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
   const start = new Date(today + 'T00:00:00+07:00');
@@ -60,7 +74,8 @@ function collect_() {
     } while (pageToken);
   });
 
-  return { generated: new Date().toISOString(), events: events, tasks: tasks };
+  const claudeRaw = PropertiesService.getScriptProperties().getProperty('claude_usage');
+  return { generated: new Date().toISOString(), events: events, tasks: tasks, claude: claudeRaw ? JSON.parse(claudeRaw) : null };
 }
 
 /** Bấm Run hàm này trong trình soạn thảo để kiểm tra (xem kết quả ở Execution log). */
