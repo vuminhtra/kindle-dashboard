@@ -84,7 +84,14 @@ sleep_secs() {
       # ngủ tới giờ NIGHT_END (tính theo giờ tròn)
       left=$(( (ne - h + 24) % 24 ))
       [ $left -eq 0 ] && left=24
-      echo $(( left * 3600 - $(date +%M | sed 's/^0//;s/^$/0/') * 60 ))
+      until_end=$(( left * 3600 - $(date +%M | sed 's/^0//;s/^$/0/') * 60 ))
+      # NIGHT_INTERVAL_MIN > 0: ban đêm vẫn dậy làm mới mỗi N phút (không quá giờ NIGHT_END)
+      nim=${NIGHT_INTERVAL_MIN:-0}
+      if [ "$nim" -ge 5 ] 2>/dev/null && [ $(( nim * 60 )) -lt $until_end ]; then
+        echo $(( nim * 60 ))
+      else
+        echo $until_end
+      fi
       return
     fi
   fi
