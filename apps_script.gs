@@ -25,9 +25,13 @@ function doPost(e) {
     return ContentService.createTextOutput('{"error":"forbidden"}').setMimeType(ContentService.MimeType.JSON);
   }
   const body = JSON.parse(e.postData.contents);
-  const keep = { fetched_at: new Date().toISOString() };
-  ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet'].forEach(function (k) {
-    if (body[k]) keep[k] = { utilization: body[k].utilization, resets_at: body[k].resets_at };
+  // Giữ mọi mục có % sử dụng (five_hour, seven_day, Fable, ...) + danh sách tên mục để dò lỗi
+  const keep = { fetched_at: new Date().toISOString(), bucket_keys: Object.keys(body) };
+  Object.keys(body).forEach(function (k) {
+    const v = body[k];
+    if (v && typeof v === 'object' && typeof v.utilization === 'number') {
+      keep[k] = { utilization: v.utilization, resets_at: v.resets_at || null };
+    }
   });
   PropertiesService.getScriptProperties().setProperty('claude_usage', JSON.stringify(keep));
   return ContentService.createTextOutput('{"ok":true}').setMimeType(ContentService.MimeType.JSON);
