@@ -218,6 +218,8 @@ def fetch_appscript(url: str, today: date) -> tuple[list[Event], list[Task]]:
         raise SystemExit(f"Apps Script báo lỗi: {data['error']} (kiểm tra token trong DATA_URL)")
     global CLAUDE_USAGE
     CLAUDE_USAGE = data.get("claude")
+    if CLAUDE_USAGE:
+        print("Các mục mức dùng Claude:", ", ".join(CLAUDE_USAGE.get("bucket_keys") or CLAUDE_USAGE.keys()))
     return parse_payload(data, today)
 
 
@@ -292,7 +294,7 @@ def _remaining(iso: str | None, now: datetime) -> tuple[str, datetime | None]:
 
 
 def draw_claude_big(d, y: int, usage: dict | None, now: datetime) -> int:
-    """Bố cục trabo2: mỗi giới hạn 1 khối to, số % lớn, thanh dày + vạch thời gian đã trôi."""
+    """Bố cục trabo2: Tuần này 1 khối rất to (số % gấp đôi) + hàng nhỏ Phiên 5 giờ | Fable."""
     # dòng tiêu đề: [logo.png nếu có trong repo] + "Claude's Trà Bô"
     x = MARGIN
     logo_path = next((p for p in Path(__file__).parent.iterdir() if p.name.lower() == "logo.png"), None)
@@ -327,68 +329,121 @@ def draw_claude_big(d, y: int, usage: dict | None, now: datetime) -> int:
         d.text((MARGIN, y), "Chưa có số liệu từ Mac mini.", font=font("Regular", 32), fill=MID)
         return y + 70
 
-    pct_col = 300                      # cột trái: số % rất to
-    bx0, bx1 = MARGIN + pct_col, W - MARGIN   # cột phải: trạng thái + thanh + vạch thời gian
+    week = usage.get("seven_day") or {}
+    y = _claude_block(d, y, "Tuần này", week, now, timedelta(days=7), big=True)
+    y += 4
+    # hàng nhỏ 2 cột: Phiên 5 giờ | Fable
+    gap = 44
+    col_w = (W - 2 * MARGIN - gap) / 2
+    fable = _find_fable(usage)
+    _claude_mini(d, MARGIN, y, col_w, "Phiên 5 giờ", usage.get("five_hour") or {}, now)
+    _claude_mini(d, MARGIN + col_w + gap, y, col_w, "Fable", fable, now,
+                 empty="chưa có số liệu Fable")
+    return y + 140
+
+
+_KNOWN_BUCKETS = {"five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet", "seven_day_oauth_apps"}
+
+
+def _find_fable(usage: dict) -> dict | None:
+    """Tìm mục Fable trong số liệu: theo biến DASH_FABLE_KEY, hoặc tên trường có chữ fable/mythos."""
+    key = os.environ.get("DASH_FABLE_KEY", "").strip()
+    if key and isinstance(usage.get(key), dict):
+        return usage[key]
+    for k, v in usage.items():
+        if isinstance(v, dict) and ("fable" in k.lower() or "mythos" in k.lower()):
+            return v
+    return None
+
+
+def _pct_text(d, x, y, pct, fp):
+    """Vẽ số % với các chữ số rộng bằng nhau (thẳng cột). y = tâm dọc."""
+    pct_txt = "--" if pct is None else f"{round(pct):02d}%"
+    cell = max(d.textlength(c, font=fp) for c in "0123456789")
+    for c in pct_txt:
+        cw = d.textlength(c, font=fp)
+        if c.isdigit():
+            d.text((x + (cell - cw) / 2, y), c, font=fp, fill=BLACK, anchor="lm")
+            x += cell
+        else:
+            d.text((x, y), c, font=fp, fill=BLACK, anchor="lm")
+            x += cw
+    return x
+
+
+def _status(pct):
+    return ("Thoải mái" if pct < 50 else "Vừa phải" if pct < 80
+            else "Sắp chạm giới hạn" if pct < 100 else "Đã hết, chờ đặt lại")
+
+
+def _claude_block(d, y, name, v, now, span, big=False):
+    """Khối to: số % rất to (gấp đôi) bên trái; bên phải tên + trạng thái + đặt lại; dưới là thanh dày toàn chiều ngang."""
+    pct = v.get("utilization")
+    left, reset_at = _remaining(v.get("resets_at"), now)
+    elapsed = min(max(1 - (reset_at - now) / span, 0), 1) if reset_at else None
+    fp = font("Bold", 208)
+    x_end = _pct_text(d, MARGIN - 8, y + 84, pct, fp)
+    rx = x_end + 34
+    d.text((rx, y + 14), name.upper(), font=font("Bold", 34), fill=BLACK)
+    if pct is not None:
+        status = _status(pct)
+        fs = font("SemiBold", 32)
+        if pct >= 80:   # cảnh báo: chữ trắng trên nền đen
+            sw = d.textlength(status, font=fs)
+            d.rounded_rectangle([rx, y + 60, rx + sw + 32, y + 106], radius=23, fill=BLACK)
+            d.text((rx + 16, y + 83), status, font=fs, fill=WHITE, anchor="lm")
+        else:
+            d.text((rx, y + 83), status, font=fs, fill=DARK, anchor="lm")
+    fi = font("Medium", 26)
+    if reset_at:
+        when = f"{reset_at:%H:%M}" if reset_at.date() == now.date() else f"{THU_NGAN[reset_at.weekday()]} {reset_at:%H:%M}"
+        d.text((rx, y + 124), f"đặt lại {when}", font=fi, fill=DARK, anchor="lm")
+        d.text((rx, y + 158), left, font=fi, fill=DARK, anchor="lm")
+    y += 182
+    # thanh dày toàn chiều ngang
+    bx0, bx1 = MARGIN, W - MARGIN
     bar_w = bx1 - bx0
-    for key, name, span in (("five_hour", "Phiên 5 giờ", timedelta(hours=5)),
-                            ("seven_day", "Tuần này", timedelta(days=7))):
-        v = usage.get(key) or {}
-        pct = v.get("utilization")
-        left, reset_at = _remaining(v.get("resets_at"), now)
-        # dòng 1: tên  ·  đặt lại + còn bao lâu
-        d.text((MARGIN, y), name, font=font("SemiBold", 32), fill=DARK)
-        if reset_at:
-            when = f"{reset_at:%H:%M}" if reset_at.date() == now.date() else f"{THU_NGAN[reset_at.weekday()]} {reset_at:%H:%M}"
-            info = f"đặt lại {when} · {left}"
-            fi = font("Medium", 26)
-            d.text((W - MARGIN - d.textlength(info, font=fi), y + 4), info, font=fi, fill=DARK)
-        y += 46
-        # cột trái: số % to
-        pct_txt = "--" if pct is None else f"{round(pct):02d}%"   # 02% để hai dòng thẳng hàng
-        fp = font("Bold", 104)
-        cell = max(d.textlength(c, font=fp) for c in "0123456789")   # chữ số rộng bằng nhau → 2 dòng thẳng cột
-        x = MARGIN - 4
-        for c in pct_txt:
-            cw = d.textlength(c, font=fp)
-            if c.isdigit():
-                d.text((x + (cell - cw) / 2, y + 64), c, font=fp, fill=BLACK, anchor="lm")
-                x += cell
-            else:
-                d.text((x, y + 64), c, font=fp, fill=BLACK, anchor="lm")
-                x += cw
-        # cột phải, hàng 1: trạng thái
-        if pct is not None:
-            status = ("Thoải mái" if pct < 50 else "Vừa phải" if pct < 80
-                      else "Sắp chạm giới hạn" if pct < 100 else "Đã hết, chờ đặt lại")
-            fs = font("SemiBold", 28)
-            if pct >= 80:   # cảnh báo: chữ trắng trên nền đen
-                sw = d.textlength(status, font=fs)
-                d.rounded_rectangle([bx0, y, bx0 + sw + 32, y + 40], radius=20, fill=BLACK)
-                d.text((bx0 + 16, y + 20), status, font=fs, fill=WHITE, anchor="lm")
-            else:
-                d.text((bx0, y + 20), status, font=fs, fill=DARK, anchor="lm")
-        # hàng 2: thanh dày
-        by, bh = y + 52, 40
-        d.rounded_rectangle([bx0, by, bx1, by + bh], radius=bh // 2, outline=BLACK, width=4)
-        for q in (0.25, 0.5, 0.75):
-            x = bx0 + bar_w * q
-            d.line([(x, by + 10), (x, by + bh - 10)], fill=LIGHT, width=2)
-        if pct:
-            fw = max(bh, bar_w * min(pct, 100) / 100)
-            d.rounded_rectangle([bx0, by, bx0 + fw, by + bh], radius=bh // 2, fill=BLACK)
-        # hàng 3: vạch thời gian đã trôi (▲) — % dùng nằm trái vạch = đang dùng chậm hơn thời gian
-        ty = by + bh + 5
-        if reset_at:
-            elapsed = min(max(1 - (reset_at - now) / span, 0), 1)
-            mx = bx0 + bar_w * elapsed
-            d.polygon([(mx, ty), (mx - 11, ty + 16), (mx + 11, ty + 16)], fill=BLACK)
-            cap = f"đã trôi {round(elapsed * 100)}% thời gian"
-            fc = font("Regular", 22)
-            cw = d.textlength(cap, font=fc)
-            cx = mx + 18 if mx + 18 + cw <= bx1 else mx - 18 - cw
-            d.text((cx, ty - 2), cap, font=fc, fill=MID)
-        y += 150
-    return y
+    bh = 50
+    d.rounded_rectangle([bx0, y, bx1, y + bh], radius=bh // 2, outline=BLACK, width=5)
+    for q in (0.25, 0.5, 0.75):
+        x = bx0 + bar_w * q
+        d.line([(x, y + 13), (x, y + bh - 13)], fill=LIGHT, width=3)
+    if pct:
+        fw = max(bh, bar_w * min(pct, 100) / 100)
+        d.rounded_rectangle([bx0, y, bx0 + fw, y + bh], radius=bh // 2, fill=BLACK)
+    ty = y + bh + 6
+    if elapsed is not None:   # ▲ thời gian đã trôi: phần đen nằm trái ▲ = đang dùng chậm hơn thời gian
+        mx = bx0 + bar_w * elapsed
+        d.polygon([(mx, ty), (mx - 13, ty + 18), (mx + 13, ty + 18)], fill=BLACK)
+        cap = f"đã trôi {round(elapsed * 100)}% thời gian"
+        fc = font("Regular", 22)
+        cw = d.textlength(cap, font=fc)
+        cx = mx + 20 if mx + 20 + cw <= bx1 else mx - 20 - cw
+        d.text((cx, ty - 1), cap, font=fc, fill=MID)
+    return ty + 34
+
+
+def _claude_mini(d, x0, y, w, name, v, now, empty=""):
+    """Khối nhỏ trong 1 cột: tên + % · thanh mỏng · đặt lại."""
+    v = v or {}
+    pct = v.get("utilization")
+    d.text((x0, y), name, font=font("SemiBold", 30), fill=DARK)
+    fp = font("Bold", 44)
+    pct_txt = "--" if pct is None else f"{round(pct)}%"
+    d.text((x0 + w - d.textlength(pct_txt, font=fp), y - 8), pct_txt, font=fp, fill=BLACK)
+    by, bh = y + 50, 22
+    d.rounded_rectangle([x0, by, x0 + w, by + bh], radius=bh // 2, outline=BLACK, width=3)
+    if pct:
+        fw = max(bh, w * min(pct, 100) / 100)
+        d.rounded_rectangle([x0, by, x0 + fw, by + bh], radius=bh // 2, fill=BLACK)
+    left, reset_at = _remaining(v.get("resets_at"), now)
+    if reset_at:
+        when = f"{reset_at:%H:%M}" if reset_at.date() == now.date() else f"{THU_NGAN[reset_at.weekday()]} {reset_at:%H:%M}"
+        cap = f"đặt lại {when} · {left}"
+    else:
+        cap = empty if pct is None else ""
+    fc = font("Regular", 22)
+    d.text((x0, by + bh + 10), fit(d, cap, fc, w), font=fc, fill=MID)
 
 
 def load_sample(path: str, today: date) -> tuple[list[Event], list[Task]]:
@@ -649,7 +704,7 @@ def render(events: list[Event], tasks: list[Task], now: datetime, weather: Weath
         return (62 + 46 * cr + (36 if len(ev_today) > cm else 0) + 26) + (62 + 44 * tr) + 16
 
     # thiếu chỗ cho todo → bớt dòng lịch (ngày mai trước, rồi hôm nay)
-    while footer_y - _bottom_h(cal_max, tom_max) - y < min_todo and (tom_max > 1 or cal_max > 2):
+    while footer_y - _bottom_h(cal_max, tom_max) - y < min_todo and (tom_max > 1 or cal_max > 1):
         if tom_max > 1:
             tom_max -= 1
         else:
