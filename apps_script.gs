@@ -33,6 +33,10 @@ function doPost(e) {
       keep[k] = { utilization: v.utilization, resets_at: v.resets_at || null };
     }
   });
+  // Bản thô (chỉ các mục khác null): Fable nằm trong danh sách "limits" ở đây
+  const raw = {};
+  Object.keys(body).forEach(function (k) { if (body[k] !== null) raw[k] = body[k]; });
+  keep.raw = JSON.stringify(raw).slice(0, 6000);
   PropertiesService.getScriptProperties().setProperty('claude_usage', JSON.stringify(keep));
   return ContentService.createTextOutput('{"ok":true}').setMimeType(ContentService.MimeType.JSON);
 }
