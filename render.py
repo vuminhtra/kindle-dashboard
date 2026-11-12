@@ -222,6 +222,8 @@ def fetch_appscript(url: str, today: date) -> tuple[list[Event], list[Task]]:
         print("Các mục mức dùng Claude:", ", ".join(CLAUDE_USAGE.get("bucket_keys") or CLAUDE_USAGE.keys()))
         print("Mục có số liệu:", "; ".join(f"{k}={v.get('utilization')}% đặt lại {v.get('resets_at')}"
               for k, v in CLAUDE_USAGE.items() if isinstance(v, dict)))
+        if CLAUDE_USAGE.get("raw"):
+            print("Bản thô:", CLAUDE_USAGE["raw"])
     return parse_payload(data, today)
 
 
