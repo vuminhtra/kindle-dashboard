@@ -219,11 +219,8 @@ def fetch_appscript(url: str, today: date) -> tuple[list[Event], list[Task]]:
     global CLAUDE_USAGE
     CLAUDE_USAGE = data.get("claude")
     if CLAUDE_USAGE:
-        print("Các mục mức dùng Claude:", ", ".join(CLAUDE_USAGE.get("bucket_keys") or CLAUDE_USAGE.keys()))
-        print("Mục có số liệu:", "; ".join(f"{k}={v.get('utilization')}% đặt lại {v.get('resets_at')}"
-              for k, v in CLAUDE_USAGE.items() if isinstance(v, dict)))
-        if CLAUDE_USAGE.get("raw"):
-            print("Bản thô:", CLAUDE_USAGE["raw"])
+        fb = _find_fable(CLAUDE_USAGE)
+        print("Fable:", f"{fb.get('utilization')}%" if fb else "không thấy trong số liệu")
     return parse_payload(data, today)
 
 
@@ -346,14 +343,25 @@ def draw_claude_big(d, y: int, usage: dict | None, now: datetime) -> int:
     return y + 140
 
 
-_KNOWN_BUCKETS = {"five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet", "seven_day_oauth_apps"}
-
-
 def _find_fable(usage: dict) -> dict | None:
-    """Tìm mục Fable trong số liệu: theo biến DASH_FABLE_KEY, hoặc tên trường có chữ fable/mythos."""
+    """Tìm mức dùng Fable. API đặt nó trong danh sách "limits" (kind weekly_scoped,
+    scope.model.display_name = "Fable"); Apps Script gửi kèm bản thô trong trường "raw"."""
     key = os.environ.get("DASH_FABLE_KEY", "").strip()
     if key and isinstance(usage.get(key), dict):
         return usage[key]
+    limits = usage.get("limits")
+    if limits is None and usage.get("raw"):
+        try:
+            limits = json.loads(usage["raw"]).get("limits")
+        except (ValueError, AttributeError):
+            limits = None
+    for lim in limits or []:
+        if not isinstance(lim, dict):
+            continue
+        scope = lim.get("scope") or {}
+        name = ((scope.get("model") or {}).get("display_name") or "") if isinstance(scope, dict) else ""
+        if "fable" in name.lower():
+            return {"utilization": lim.get("percent"), "resets_at": lim.get("resets_at")}
     for k, v in usage.items():
         if isinstance(v, dict) and ("fable" in k.lower() or "mythos" in k.lower()):
             return v
